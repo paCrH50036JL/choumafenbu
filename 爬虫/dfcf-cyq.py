@@ -83,7 +83,7 @@ if __name__ == "__main__":
     # options.headless = True
     browser = webdriver.Chrome(executable_path=executable_path, options=options)
     # browser.maximize_window()
-    browser.get('http://quote.eastmoney.com/concept/sz000001.html')
+    browser.get('http://quote.eastmoney.com/concept/sh603322.html')
     browser.find_element_by_id('cmfb-btn').click()
     wait_data(browser)
 
@@ -127,9 +127,15 @@ if __name__ == "__main__":
     print(contents)
     ret = test_data(contents)
     print(ret)
-    if ret[0] == 0:
-        df = pd.DataFrame(contents)
-        print(df)
+    if ret[0] != 0:
+        exit()
+
+    ### 使用pandas进行处理
+    df = pd.DataFrame(contents)
+    columns = {0: '日期', 1: '获利比例', 2: '平均成本', 3: '90%成本', 4: '集中度', 5: '70%成本', 6: '集中度'}
+    df.rename(columns=columns, inplace=True)
+    print(df)
+    df.to_csv(path_or_buf='cyq.csv', index=False, encoding='gbk')
 
     ### 退出
     browser.quit()
