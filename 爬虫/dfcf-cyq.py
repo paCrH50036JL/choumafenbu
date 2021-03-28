@@ -8,6 +8,17 @@ from selenium.webdriver.support.wait import WebDriverWait #等待页面加载某
 import pandas as pd
 import time
 
+# 初始化浏览器
+def browser_init():
+    # 无界面模式运行,参考:https://blog.csdn.net/Artificial_idiots/article/details/108490448
+    option = webdriver.ChromeOptions()
+    option.add_argument('window-size=1920x3000')  # 指定浏览器分辨率,此数值设置关系到后面的移动距离10.8,变为太小会导致元素遗漏
+    option.add_argument('--disable-gpu')  # 谷歌文档提到需要加上这个属性来规避bug
+    option.add_argument('--headless')  # 浏览器不提供可视化页面. linux下如果系统不支持可视化不加这条会启动失败
+    executable_path = r'C:\Program Files\Google\Chrome\Application\chromedriver.exe'
+    browser = webdriver.Chrome(executable_path=executable_path, options=option)
+    return browser
+
 # '''
 # 1.整个图片大小:990*600，开始默认处于最中心位置，向左为负向右为正
 # 2.使用My Ruler插件测量可知,总柱状个数为60个(右侧19、中间1、左侧40)、长度为1086-436=650,因此每个距离大约为10.83
@@ -41,7 +52,8 @@ def wait_data(browser):
     # WebDriverWait(browser, TIMEOUT).until(EC.visibility_of_element_located((By.XPATH, xpath6)))
     # WebDriverWait(browser, TIMEOUT).until(EC.visibility_of_element_located((By.XPATH, xpath7)))
     # WebDriverWait(browser, TIMEOUT).until(EC.visibility_of_element_located((By.XPATH, xpath8)))
-    # https://blog.csdn.net/zhangvalue/article/details/102921631
+    # 1.js页面会存在刷新问题导致某个瞬间读取不到对象,处理方式为多次尝试直到读取到为止
+    # 2.详细参考: https://blog.csdn.net/zhangvalue/article/details/102921631
     while True:
         try:
             x1 = browser.find_element_by_xpath(xpath1).text
@@ -77,12 +89,8 @@ if __name__ == "__main__":
     LEFT, RIGHT = 40, 20
     STEP = 10.8
 
-    ### 初始化并打开网站页面
-    executable_path = r'C:\Program Files\Google\Chrome\Application\chromedriver.exe'
-    options = webdriver.ChromeOptions()
-    # options.headless = True
-    browser = webdriver.Chrome(executable_path=executable_path, options=options)
-    # browser.maximize_window()
+    ### 打开网页并等待所有元素加载完成
+    browser = browser_init()
     browser.get('http://quote.eastmoney.com/concept/sh603322.html')
     browser.find_element_by_id('cmfb-btn').click()
     wait_data(browser)
