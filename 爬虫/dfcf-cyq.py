@@ -86,7 +86,7 @@ def test_data(contents):
 
 if __name__ == "__main__":
     ### 定义用到的变量
-    LEFT, RIGHT = 40, 20
+    LEFT, RIGHT, ERROR_CNTS = 40, 20, 10
     STEP = 10.8
 
     ### 打开网页并等待所有元素加载完成
@@ -103,31 +103,41 @@ if __name__ == "__main__":
     action.move_to_element(browser.find_element_by_xpath('//*[@id="chart-container"]/div[1]')).perform()
     contents_right = []
     contents_right.append(wait_data(browser))
+    loop_cnts = 0
     while True:
-        action = ActionChains(browser)
-        action.move_by_offset(STEP, 0).perform()
-        content = wait_data(browser)
-        if (len(contents_right) != (RIGHT - 1)) and (content[0] == zxsj):  # 元素未刷新,继续移动
-            continue
-        else:
-            if content not in contents_right:  # 判断是否移动到了新元素
-                contents_right.append(content)
-        if len(contents_right) == RIGHT:  # 判断是否遍历完毕
-            break
+        try:
+            action = ActionChains(browser)
+            action.move_by_offset(STEP, 0).perform()
+            content = wait_data(browser)
+            if (len(contents_right) != (RIGHT - 1)) and (content[0] == zxsj):  # 元素未刷新,继续移动
+                continue
+            else:
+                if content not in contents_right:  # 判断是否移动到了新元素
+                    contents_right.append(content)
+            loop_cnts = 0
+        except:
+            loop_cnts = loop_cnts + 1
+        if (len(contents_right) == RIGHT) or (ERROR_CNTS == loop_cnts):  # 判断是否遍历完毕,或者出错过多
+             break
     print(contents_right)
     # 移动到柱状图页面,以1为单位逐步向左移动以便抓取数据,避免定位不准导致的重复或者遗漏问题
     action = ActionChains(browser)
     action.move_to_element(browser.find_element_by_xpath('//*[@id="chart-container"]/div[1]')).perform()
     contents_left = []
+    loop_cnts = 0
     while True:
-        action = ActionChains(browser)
-        action.move_by_offset((0 - STEP), 0).perform()
-        content = wait_data(browser)
-        if (content not in contents_left) and \
-                (content[0] != contents_right[0]) and (content[0] != zxsj):  # 判断是否移动到了新元素
-            contents_left.append(content)
-        if len(contents_left) == LEFT:  # 判断是否遍历完毕
-            break
+        try:
+            action = ActionChains(browser)
+            action.move_by_offset((0 - STEP), 0).perform()
+            content = wait_data(browser)
+            if (content not in contents_left) and \
+                    (content[0] != contents_right[0]) and (content[0] != zxsj):  # 判断是否移动到了新元素
+                contents_left.append(content)
+            loop_cnts = 0
+        except:
+            loop_cnts = loop_cnts + 1
+        if (len(contents_left) == LEFT) or (ERROR_CNTS == loop_cnts):  # 判断是否遍历完毕,或者出错过多
+             break
     print(contents_left)
 
     ### 处理拿到的数据
