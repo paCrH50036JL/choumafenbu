@@ -184,7 +184,7 @@ if __name__ == "__main__":
         columns = {0: '日期', 1: '获利比例', 2: '平均成本', 3: '90%成本', 4: '集中度', 5: '70%成本', 6: '集中度'}
         df.rename(columns=columns, inplace=True)
         print(df)
-        df.to_csv(path_or_buf='%s.csv' % code['代码'], index=False, encoding='gbk')
+        df.to_csv(path_or_buf='output/%s.csv' % code['代码'], index=False, encoding='gbk')
 
         ### 延迟一下获取下一个股票数据
         # browser.close()
