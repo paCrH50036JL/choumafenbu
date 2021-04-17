@@ -39,12 +39,20 @@ def screenshot_debug(browser, name):
 # 初始化浏览器
 def browser_init():
     # 无界面模式运行,参考:https://blog.csdn.net/Artificial_idiots/article/details/108490448
-    option = webdriver.ChromeOptions()
-    # option.add_argument('window-size=1920x3000')  # 指定浏览器分辨率,此数值设置关系到后面的移动距离10.8,变为太小会导致元素遗漏
-    # option.add_argument('--disable-gpu')  # 谷歌文档提到需要加上这个属性来规避bug
-    # option.add_argument('--headless')  # 浏览器不提供可视化页面. linux下如果系统不支持可视化不加这条会启动失败
+    chrome_options = webdriver.ChromeOptions()
+    chrome_options.add_argument('--window-size=1920,1080')
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--disable-gpu')
+    chrome_options.add_argument('--headless')
+    chrome_options.add_argument('--no-proxy-server')
+    chrome_options.add_argument("--proxy-server='direct://'")
+    chrome_options.add_argument("--proxy-bypass-list=*")
+    ua = '--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) ' + \
+         'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3683.86 Safari/537.36'
+    chrome_options.add_argument(ua)
+    chrome_options.add_argument('--start-maximized')
     executable_path = r'C:\Program Files\Google\Chrome\Application\chromedriver.exe'
-    browser = webdriver.Chrome(executable_path=executable_path, options=option)
+    browser = webdriver.Chrome(executable_path=executable_path, options=chrome_options)
     return browser
 
 # '''
@@ -96,10 +104,41 @@ def wait_data(browser):
             pass
     return [x1, x2, x4, x5, x6, x7, x8]
 
+# 从新浪财经获取股票交易日期
+def get_trade_date(stock_code):
+    print('从新浪财经获取%s最新的交易日期' % stock_code)
+    # 从新浪财经获取最近的交易日期
+    url = 'https://quotes.sina.cn/cn/api/jsonp_v2.php/var%%20_%s_60_1608109168173=/CN_MarketDataService.getKLineData?symbol=%s&scale=%d&ma=no&datalen=%d' % (stock_code, stock_code, 240, 70)
+    contents = urlopen(url).read().decode()
+    contents = re.findall('=\((.*)\);', contents)  # 寻找=(到);之间的内容
+    contents = json.loads(contents[0])
+    dates = [ content['day'] for content in contents]
+    date = dates[-60:] if (len(dates) >= 60) else dates  # 取出最后60个
+    return date
+
+# 比较东财日期大小
+def compare_date(t1, t2):
+    '''
+    def y(x):
+        x_str = x[0:4] + x[5:7] + x[8:10]
+        return int(x_str)
+    '''
+    y = lambda x: int(x[0:4] + x[5:7] + x[8:10])
+    diff = y(t1) - y(t2)
+    # print(y(t1), y(t2), diff)
+    if diff > 0:
+        return 1
+    elif diff == 0:
+        return 0
+    else:
+        return -1
+
 # 检查数据是否有重复,根据日期判断即可
-def test_data(contents):
+def check_data_error(contents, stock_code):
+    # 设置需要用到的变量
     x = []
     status = -1
+    # 对比数据日期以便判断数据是否存在问题
     for tmp in contents:
         x.append(tmp[0])
     if len(set(x)) == len(x):
@@ -112,8 +151,7 @@ def test_data(contents):
 
 if __name__ == "__main__":
     ### 定义用到的变量
-    LEFT, RIGHT, ERROR_CNTS = 40, 20, 10
-    STEP = 10.8
+    MAX_REPEAT, STEP, RANDOM_STEP = 4, 5.4, 5.4
 
     ### 获取今日所有股票列表
     print('正在获取今日所有开盘股票')
@@ -139,44 +177,61 @@ if __name__ == "__main__":
 
         ### 移动鼠标然后抓取数据
         ### 移动到柱状图页面,以STEP为单位逐步向右移动以便抓取数据,避免定位不准导致的重复或者遗漏问题
+        # 取得最后60个交易日期
+        trade_date = get_trade_date(code['代码'])
+        print('最后60个交易日为%s' % trade_date)
         # 取得最新交易时间
         zxsj = browser.find_element_by_xpath('//*[@id="quote-time"]').text[:10]
+        print('最新交易日为%s' % zxsj)
         # 移动到柱状图最左边
         action = ActionChains(browser)
         element = browser.find_element_by_xpath('//*[@id="chart-container"]/div[2]/canvas[2]')
-        action.move_to_element_with_offset(element, 0, int(canvas_height)/2).perform()
+        action.move_to_element_with_offset(element, 0, (int(canvas_height)*2)/3).perform()
         screenshot_debug(browser, code['代码'] + '-2')
         # 逐步向右移动获取柱状图对应筹码分布
         contents = []
-        # 1.非N开头新股需要移动到时间不为zxsj,代表最左边元素
+        # 1.非N开头新股移动到最左边元素/trade_date[0]
         while True:
             action.move_by_offset(STEP, 0).perform()
             content = wait_data(browser)
-            if content[0] != zxsj:
+            if 0 == compare_date(content[0], trade_date[0]):
                 print('已移动到最左边的元素')
                 contents.append(content)
                 break
         screenshot_debug(browser, code['代码'] + '-3')
         print(contents)
-        # 2.逐步向右移动到时间为zxsj,代表最右边元素
-        while True:
-            action = ActionChains(browser)
-            action.move_by_offset(STEP, 0).perform()
-            content = wait_data(browser)
-            # 判断是否移动到最右边元素
-            if content[0] == zxsj:
-                print('已移动到最右边的元素')
-                contents.append(content)
-                break
-            else:
-                # 判断是否移动到新元素
-                if content not in contents:
+        # 2.逐步向右移动到最右边元素trade_date[-1],依次对比每个日期并取数据
+        repeat_cnts = 0
+        for date in trade_date[1:]:
+            while True:
+                content = wait_data(browser)
+                ret = compare_date(content[0], date)
+                print(content[0], date, ret)
+                # 避免获取了最后一个交易日数据,移动微小距离
+                if (content[0] != date) and (content[0] == trade_date[-1]):
+                    action = ActionChains(browser)
+                    action.move_by_offset(RANDOM_STEP, 0).perform()
+                    continue
+                # 判断是否移动到对应元素
+                if 0 == ret:
+                    print('已找到到日期%s的元素,将向右移动寻找元素' % date)
                     contents.append(content)
+                    action = ActionChains(browser)
+                    action.move_by_offset(STEP, 0).perform()
+                    break
+                elif -1 == ret:
+                    print('鼠标依旧处于滞后元素位置,将向右移动寻找元素')
+                    action = ActionChains(browser)
+                    action.move_by_offset(STEP, 0).perform()
+                elif 1 == ret:
+                    print('鼠标依旧处于超前元素位置,将向左移动寻找元素')
+                    action = ActionChains(browser)
+                    action.move_by_offset((0 - STEP), 0).perform()
         screenshot_debug(browser, code['代码'] + '-4')
         print(contents)
 
         ### 判断取到的数据是否存在问题
-        ret = test_data(contents)
+        ret = check_data_error(contents, code['代码'])
         if ret[0] != 0:
             exit()
 
