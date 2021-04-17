@@ -94,8 +94,6 @@ def wait_data(browser):
 
 # 检查数据是否有重复,根据日期判断即可
 def test_data(contents):
-    LEN = 60
-
     x = []
     status = -1
     for tmp in contents:
@@ -114,68 +112,63 @@ if __name__ == "__main__":
     STEP = 10.8
 
     ### 获取今日所有股票列表
+    print('正在获取今日所有开盘股票')
     codes = get_list()
     print(codes)
 
     ### 打开网页并等待所有元素加载完成
     browser = browser_init()
     for code in codes:
+        if 'N' in code['名称']:
+            print('%s为当日上市新股,暂时不处理')
+            continue
         print('正在获取股票%s-%s的数据' % (code['名称'], code['代码']))
         browser.get('http://quote.eastmoney.com/concept/%s.html' % code['代码'])
         browser.find_element_by_xpath('//*[@id="type-selector"]/a[5]').click()  # 点击'日K'按钮
         browser.find_element_by_id('btn-cyq').click()  # 点击'筹码分布'按钮
-        wait_data(browser)
+        canvas = browser.find_element_by_xpath('//*[@id="chart-container"]/div[2]/canvas[2]')
+        canvas_width = canvas.get_attribute('width')
+        canvas_height = canvas.get_attribute('height')
+        # print(canvas_width, canvas_height)
+        # wait_data(browser)
 
         ### 移动鼠标然后抓取数据
+        ### 移动到柱状图页面,以STEP为单位逐步向右移动以便抓取数据,避免定位不准导致的重复或者遗漏问题
         # 取得最新交易时间
         zxsj = browser.find_element_by_xpath('//*[@id="quote-time"]').text[:10]
-        # 移动到柱状图页面,以2为单位逐步向右移动以便抓取数据,避免定位不准导致的重复或者遗漏问题
+        # 移动到柱状图最左边
         action = ActionChains(browser)
-        action.move_to_element(browser.find_element_by_xpath('//*[@id="chart-container"]/div[1]')).perform()
-        contents_right = []
-        contents_right.append(wait_data(browser))
-        loop_cnts = 0
+        element = browser.find_element_by_xpath('//*[@id="chart-container"]/div[2]/canvas[2]')
+        action.move_to_element_with_offset(element, 0, int(canvas_height)/2).perform()
+        # 逐步向右移动获取柱状图对应筹码分布
+        contents = []
+        # 1.非N开头新股需要移动到时间不为zxsj,代表最左边元素
         while True:
-            try:
-                action = ActionChains(browser)
-                action.move_by_offset(STEP, 0).perform()
-                content = wait_data(browser)
-                if (len(contents_right) != (RIGHT - 1)) and (content[0] == zxsj):  # 元素未刷新,继续移动
-                    continue
-                else:
-                    if content not in contents_right:  # 判断是否移动到了新元素
-                        contents_right.append(content)
-                loop_cnts = 0
-            except:
-                loop_cnts = loop_cnts + 1
-            if (len(contents_right) == RIGHT) or (ERROR_CNTS == loop_cnts):  # 判断是否遍历完毕,或者出错过多
-                 break
-        # print(contents_right)
-        # 移动到柱状图页面,以1为单位逐步向左移动以便抓取数据,避免定位不准导致的重复或者遗漏问题
-        action = ActionChains(browser)
-        action.move_to_element(browser.find_element_by_xpath('//*[@id="chart-container"]/div[1]')).perform()
-        contents_left = []
-        loop_cnts = 0
+            action.move_by_offset(STEP, 0).perform()
+            content = wait_data(browser)
+            if content[0] != zxsj:
+                print('已移动到最左边的元素')
+                contents.append(content)
+                break
+        print(contents)
+        # 2.逐步向右移动到时间为zxsj,代表最右边元素
         while True:
-            try:
-                action = ActionChains(browser)
-                action.move_by_offset((0 - STEP), 0).perform()
-                content = wait_data(browser)
-                if (content not in contents_left) and \
-                        (content[0] != contents_right[0]) and (content[0] != zxsj):  # 判断是否移动到了新元素
-                    contents_left.append(content)
-                loop_cnts = 0
-            except:
-                loop_cnts = loop_cnts + 1
-            if (len(contents_left) == LEFT) or (ERROR_CNTS == loop_cnts):  # 判断是否遍历完毕,或者出错过多
-                 break
-        # print(contents_left)
+            action = ActionChains(browser)
+            action.move_by_offset(STEP, 0).perform()
+            content = wait_data(browser)
+            # 判断是否移动到最右边元素
+            if content[0] == zxsj:
+                print('已移动到最右边的元素')
+                contents.append(content)
+                break
+            else:
+                # 判断是否移动到新元素
+                if content not in contents:
+                    contents.append(content)
+        print(contents)
 
-        ### 处理拿到的数据
-        contents = contents_left[::-1] + contents_right
-        # print(contents)
+        ### 判断取到的数据是否存在问题
         ret = test_data(contents)
-        # print(ret)
         if ret[0] != 0:
             exit()
 
@@ -187,7 +180,6 @@ if __name__ == "__main__":
         df.to_csv(path_or_buf='output/%s.csv' % code['代码'], index=False, encoding='gbk')
 
         ### 延迟一下获取下一个股票数据
-        # browser.close()
         time.sleep(1)
 
     ### 退出
