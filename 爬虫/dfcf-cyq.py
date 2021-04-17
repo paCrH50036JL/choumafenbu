@@ -10,6 +10,7 @@ import time
 from urllib.request import urlopen
 import json
 import re
+from multiprocessing import Pool, cpu_count
 
 # 获取当日所有股票信息:
 # 地址: http://35.push2.eastmoney.com/api/qt/clist/get?cb=jQuery112408020983883791639_1617375883153&pn=1&pz=4000&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f3&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23&fields=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f24,f25,f22,f11,f62,f128,f136,f115,f152&_=1617375883158
@@ -141,106 +142,116 @@ def check_data_error(contents, stock_code, trade_date):
     print('新浪财经日期%s,东方财富日期%s' % (trade_date, stock_date))
     return (stock_date == trade_date)
 
-if __name__ == "__main__":
+# 抓取数据->检查错误->存入csv
+def fetch_check_write(code, cnts):
+    print('开始执行第%d个多进程任务...' % cnts)
+    if 'N' in code['名称']:
+        print('%s为当日上市新股,暂时不处理' % code['名称'])
+        return
     ### 定义用到的变量
     MAX_REPEAT, STEP, RANDOM_STEP = 4, 5.4, 2.5
+    # 初始化浏览器
+    browser = browser_init()
+    while True:
+        print('正在获取股票%s-%s的数据' % (code['名称'], code['代码']))
+        browser.get('http://quote.eastmoney.com/concept/%s.html' % code['代码'])
+        browser.find_element_by_xpath('//*[@id="type-selector"]/a[5]').click()  # 点击'日K'按钮
+        browser.find_element_by_id('btn-cyq').click()  # 点击'筹码分布'按钮
+        screenshot_debug(browser, code['代码'] + '-1')
+        canvas = browser.find_element_by_xpath('//*[@id="chart-container"]/div[2]/canvas[2]')
+        canvas_width = canvas.get_attribute('width')
+        canvas_height = canvas.get_attribute('height')
+        # print(canvas_width, canvas_height)
+        # wait_data(browser)
 
+        ### 移动鼠标然后抓取数据
+        ### 移动到柱状图页面,以STEP为单位逐步向右移动以便抓取数据,避免定位不准导致的重复或者遗漏问题
+        # 取得最后60个交易日期
+        trade_date = get_trade_date(code['代码'])
+        print('最后60个交易日为%s' % trade_date)
+        # 取得最新交易时间
+        zxsj = browser.find_element_by_xpath('//*[@id="quote-time"]').text[:10]
+        print('最新交易日为%s' % zxsj)
+        # 移动到柱状图最左边
+        action = ActionChains(browser)
+        element = browser.find_element_by_xpath('//*[@id="chart-container"]/div[2]/canvas[2]')
+        action.move_to_element_with_offset(element, 0, (int(canvas_height) * 2) / 3).perform()
+        screenshot_debug(browser, code['代码'] + '-2')
+        # 逐步向右移动获取柱状图对应筹码分布
+        contents = []
+        # 1.非N开头新股移动到最左边元素/trade_date[0]
+        while True:
+            action.move_by_offset(STEP, 0).perform()
+            content = wait_data(browser)
+            if 0 == compare_date(content[0], trade_date[0]):
+                print('已移动到最左边的元素')
+                contents.append(content)
+                break
+        screenshot_debug(browser, code['代码'] + '-3')
+        print(contents)
+        # 2.逐步向右移动到最右边元素trade_date[-1],依次对比每个日期并取数据
+        repeat_cnts = 0
+        for date in trade_date[1:-1]:
+            while True:
+                content = wait_data(browser)
+                ret = compare_date(content[0], date)
+                print(content[0], date, ret)
+                # 判断是否移动到对应元素
+                if 0 == ret:
+                    print('已找到到日期%s的元素,将向右移动寻找元素' % date)
+                    contents.append(content)
+                    action = ActionChains(browser)
+                    action.move_by_offset(STEP, 0).perform()
+                    break
+                elif -1 == ret:
+                    print('鼠标依旧处于滞后元素位置,将向右移动寻找元素')
+                    action = ActionChains(browser)
+                    action.move_by_offset(STEP, 0).perform()
+                elif 1 == ret:
+                    print('鼠标依旧处于超前元素位置,将向左移动寻找元素')
+                    action = ActionChains(browser)
+                    action.move_by_offset((0 - STEP), 0).perform()
+        screenshot_debug(browser, code['代码'] + '-4')
+        print(contents)
+        # 3.非N开头新股移动到最右边元素/trade_date[-1]
+        while True:
+            action.move_by_offset(STEP, 0).perform()
+            content = wait_data(browser)
+            if 0 == compare_date(content[0], trade_date[-1]):
+                print('已移动到最右边的元素')
+                contents.append(content)
+                break
+        screenshot_debug(browser, code['代码'] + '-5')
+        print(contents)
+
+        ### 判断取到的数据是否存在问题,若存在继续继续获取
+        if check_data_error(contents, code['代码'], trade_date) == True:
+            break
+
+    ### 使用pandas进行处理
+    df = pd.DataFrame(contents)
+    columns = {0: '日期', 1: '获利比例', 2: '平均成本', 3: '90%成本', 4: '集中度', 5: '70%成本', 6: '集中度'}
+    df.rename(columns=columns, inplace=True)
+    print(df)
+    df.to_csv(path_or_buf='output/%s.csv' % code['代码'], index=False, encoding='gbk')
+
+    ### 延迟一下获取下一个股票数据
+    time.sleep(1)
+    ### 退出
+    browser.quit()
+
+
+if __name__ == "__main__":
     ### 获取今日所有股票列表
     print('正在获取今日所有开盘股票')
     codes = get_list()
     print(codes)
 
-    ### 打开网页并等待所有元素加载完成
-    browser = browser_init()
+    # 初始化多进程
+    p = Pool(cpu_count())
+    cnts = 0
     for code in codes:
-        if 'N' in code['名称']:
-            print('%s为当日上市新股,暂时不处理' % code['名称'])
-            continue
-        while True:
-            print('正在获取股票%s-%s的数据' % (code['名称'], code['代码']))
-            browser.get('http://quote.eastmoney.com/concept/%s.html' % code['代码'])
-            browser.find_element_by_xpath('//*[@id="type-selector"]/a[5]').click()  # 点击'日K'按钮
-            browser.find_element_by_id('btn-cyq').click()  # 点击'筹码分布'按钮
-            screenshot_debug(browser, code['代码'] + '-1')
-            canvas = browser.find_element_by_xpath('//*[@id="chart-container"]/div[2]/canvas[2]')
-            canvas_width = canvas.get_attribute('width')
-            canvas_height = canvas.get_attribute('height')
-            # print(canvas_width, canvas_height)
-            # wait_data(browser)
-
-            ### 移动鼠标然后抓取数据
-            ### 移动到柱状图页面,以STEP为单位逐步向右移动以便抓取数据,避免定位不准导致的重复或者遗漏问题
-            # 取得最后60个交易日期
-            trade_date = get_trade_date(code['代码'])
-            print('最后60个交易日为%s' % trade_date)
-            # 取得最新交易时间
-            zxsj = browser.find_element_by_xpath('//*[@id="quote-time"]').text[:10]
-            print('最新交易日为%s' % zxsj)
-            # 移动到柱状图最左边
-            action = ActionChains(browser)
-            element = browser.find_element_by_xpath('//*[@id="chart-container"]/div[2]/canvas[2]')
-            action.move_to_element_with_offset(element, 0, (int(canvas_height)*2)/3).perform()
-            screenshot_debug(browser, code['代码'] + '-2')
-            # 逐步向右移动获取柱状图对应筹码分布
-            contents = []
-            # 1.非N开头新股移动到最左边元素/trade_date[0]
-            while True:
-                action.move_by_offset(STEP, 0).perform()
-                content = wait_data(browser)
-                if 0 == compare_date(content[0], trade_date[0]):
-                    print('已移动到最左边的元素')
-                    contents.append(content)
-                    break
-            screenshot_debug(browser, code['代码'] + '-3')
-            print(contents)
-            # 2.逐步向右移动到最右边元素trade_date[-1],依次对比每个日期并取数据
-            repeat_cnts = 0
-            for date in trade_date[1:-1]:
-                while True:
-                    content = wait_data(browser)
-                    ret = compare_date(content[0], date)
-                    print(content[0], date, ret)
-                    # 判断是否移动到对应元素
-                    if 0 == ret:
-                        print('已找到到日期%s的元素,将向右移动寻找元素' % date)
-                        contents.append(content)
-                        action = ActionChains(browser)
-                        action.move_by_offset(STEP, 0).perform()
-                        break
-                    elif -1 == ret:
-                        print('鼠标依旧处于滞后元素位置,将向右移动寻找元素')
-                        action = ActionChains(browser)
-                        action.move_by_offset(STEP, 0).perform()
-                    elif 1 == ret:
-                        print('鼠标依旧处于超前元素位置,将向左移动寻找元素')
-                        action = ActionChains(browser)
-                        action.move_by_offset((0 - STEP), 0).perform()
-            screenshot_debug(browser, code['代码'] + '-4')
-            print(contents)
-            # 3.非N开头新股移动到最右边元素/trade_date[-1]
-            while True:
-                action.move_by_offset(STEP, 0).perform()
-                content = wait_data(browser)
-                if 0 == compare_date(content[0], trade_date[-1]):
-                    print('已移动到最右边的元素')
-                    contents.append(content)
-                    break
-            screenshot_debug(browser, code['代码'] + '-5')
-            print(contents)
-
-            ### 判断取到的数据是否存在问题,若存在继续继续获取
-            if check_data_error(contents, code['代码'], trade_date) == True:
-                break
-
-        ### 使用pandas进行处理
-        df = pd.DataFrame(contents)
-        columns = {0: '日期', 1: '获利比例', 2: '平均成本', 3: '90%成本', 4: '集中度', 5: '70%成本', 6: '集中度'}
-        df.rename(columns=columns, inplace=True)
-        print(df)
-        df.to_csv(path_or_buf='output/%s.csv' % code['代码'], index=False, encoding='gbk')
-
-        ### 延迟一下获取下一个股票数据
-        time.sleep(1)
-
-    ### 退出
-    browser.quit()
+        cnts += 1
+        p.apply_async(fetch_check_write, args=(code, cnts))
+    p.close()
+    p.join()
