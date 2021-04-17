@@ -195,16 +195,11 @@ if __name__ == "__main__":
             print(contents)
             # 2.逐步向右移动到最右边元素trade_date[-1],依次对比每个日期并取数据
             repeat_cnts = 0
-            for date in trade_date[1:]:
+            for date in trade_date[1:-1]:
                 while True:
                     content = wait_data(browser)
                     ret = compare_date(content[0], date)
                     print(content[0], date, ret)
-                    # 避免获取了最后一个交易日数据,移动微小距离
-                    if (content[0] != date) and (content[0] == trade_date[-1]):
-                        action = ActionChains(browser)
-                        action.move_by_offset(RANDOM_STEP, 0).perform()
-                        continue
                     # 判断是否移动到对应元素
                     if 0 == ret:
                         print('已找到到日期%s的元素,将向右移动寻找元素' % date)
@@ -221,6 +216,16 @@ if __name__ == "__main__":
                         action = ActionChains(browser)
                         action.move_by_offset((0 - STEP), 0).perform()
             screenshot_debug(browser, code['代码'] + '-4')
+            print(contents)
+            # 3.非N开头新股移动到最右边元素/trade_date[-1]
+            while True:
+                action.move_by_offset(STEP, 0).perform()
+                content = wait_data(browser)
+                if 0 == compare_date(content[0], trade_date[-1]):
+                    print('已移动到最右边的元素')
+                    contents.append(content)
+                    break
+            screenshot_debug(browser, code['代码'] + '-5')
             print(contents)
 
             ### 判断取到的数据是否存在问题,若存在继续继续获取
