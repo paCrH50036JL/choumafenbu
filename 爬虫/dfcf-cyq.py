@@ -149,7 +149,7 @@ def fetch_check_write(code, cnts):
         print('%s为当日上市新股,暂时不处理' % code['名称'])
         return
     ### 定义用到的变量
-    MAX_REPEAT, STEP, RANDOM_STEP = 4, 5.4, 2.5
+    STEP = 5.4
     # 初始化浏览器
     browser = browser_init()
     while True:
@@ -157,7 +157,7 @@ def fetch_check_write(code, cnts):
         browser.get('http://quote.eastmoney.com/concept/%s.html' % code['代码'])
         browser.find_element_by_xpath('//*[@id="type-selector"]/a[5]').click()  # 点击'日K'按钮
         browser.find_element_by_id('btn-cyq').click()  # 点击'筹码分布'按钮
-        screenshot_debug(browser, code['代码'] + '-1')
+        # screenshot_debug(browser, code['代码'] + '-1')
         canvas = browser.find_element_by_xpath('//*[@id="chart-container"]/div[2]/canvas[2]')
         canvas_width = canvas.get_attribute('width')
         canvas_height = canvas.get_attribute('height')
@@ -175,8 +175,8 @@ def fetch_check_write(code, cnts):
         # 移动到柱状图最左边
         action = ActionChains(browser)
         element = browser.find_element_by_xpath('//*[@id="chart-container"]/div[2]/canvas[2]')
-        action.move_to_element_with_offset(element, 0, (int(canvas_height) * 2) / 3).perform()
-        screenshot_debug(browser, code['代码'] + '-2')
+        action.move_to_element_with_offset(element, (10*STEP), (int(canvas_height) * 2) / 3).perform()
+        # screenshot_debug(browser, code['代码'] + '-2')
         # 逐步向右移动获取柱状图对应筹码分布
         contents = []
         # 1.非N开头新股移动到最左边元素/trade_date[0]
@@ -187,7 +187,7 @@ def fetch_check_write(code, cnts):
                 print('已移动到最左边的元素')
                 contents.append(content)
                 break
-        screenshot_debug(browser, code['代码'] + '-3')
+        # screenshot_debug(browser, code['代码'] + '-3')
         print(contents)
         # 2.逐步向右移动到最右边元素trade_date[-1],依次对比每个日期并取数据
         repeat_cnts = 0
@@ -195,7 +195,7 @@ def fetch_check_write(code, cnts):
             while True:
                 content = wait_data(browser)
                 ret = compare_date(content[0], date)
-                print(content[0], date, ret)
+                # print(content[0], date, ret)
                 # 判断是否移动到对应元素
                 if 0 == ret:
                     print('已找到到日期%s的元素,将向右移动寻找元素' % date)
@@ -211,7 +211,7 @@ def fetch_check_write(code, cnts):
                     print('鼠标依旧处于超前元素位置,将向左移动寻找元素')
                     action = ActionChains(browser)
                     action.move_by_offset((0 - STEP), 0).perform()
-        screenshot_debug(browser, code['代码'] + '-4')
+        # screenshot_debug(browser, code['代码'] + '-4')
         print(contents)
         # 3.非N开头新股移动到最右边元素/trade_date[-1]
         while True:
@@ -221,7 +221,7 @@ def fetch_check_write(code, cnts):
                 print('已移动到最右边的元素')
                 contents.append(content)
                 break
-        screenshot_debug(browser, code['代码'] + '-5')
+        # screenshot_debug(browser, code['代码'] + '-5')
         print(contents)
 
         ### 判断取到的数据是否存在问题,若存在继续继续获取
@@ -235,8 +235,6 @@ def fetch_check_write(code, cnts):
     print(df)
     df.to_csv(path_or_buf='output/%s.csv' % code['代码'], index=False, encoding='gbk')
 
-    ### 延迟一下获取下一个股票数据
-    time.sleep(1)
     ### 退出
     browser.quit()
 
@@ -248,7 +246,7 @@ if __name__ == "__main__":
     print(codes)
 
     # 初始化多进程
-    p = Pool(cpu_count() - 5)
+    p = Pool(cpu_count() if (cpu_count() == 1) else (cpu_count() - 1))
     cnts = 0
     for code in codes:
         cnts += 1
