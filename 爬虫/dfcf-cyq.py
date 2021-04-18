@@ -248,7 +248,7 @@ if __name__ == "__main__":
     print(codes)
 
     # 初始化多进程
-    p = Pool(cpu_count())
+    p = Pool(cpu_count() - 5)
     cnts = 0
     for code in codes:
         cnts += 1
