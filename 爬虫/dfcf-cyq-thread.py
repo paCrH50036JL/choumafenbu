@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED, FIRST_CO
 # 说明: pn=1-从哪页开始,pz=4000-获取多少个数据
 def get_list():
     # 抓取数据
-    url = 'http://35.push2.eastmoney.com/api/qt/clist/get?cb=jQuery112408020983883791639_1617375883153&pn=%s&pz=%s&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f3&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23&fields=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f24,f25,f22,f11,f62,f128,f136,f115,f152&_=1617375883158' % (1, 4000)
+    url = 'http://35.push2.eastmoney.com/api/qt/clist/get?cb=jQuery112408020983883791639_1617375883153&pn=%s&pz=%s&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f3&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23&fields=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f24,f25,f22,f11,f62,f128,f136,f115,f152&_=1617375883158' % (1, 5000)
     content = urlopen(url=url).read().decode()
     # print(content)
     # 解析数据
@@ -152,7 +152,7 @@ def fetch_check_write(code, cnts):
         print('%s为当日上市新股,暂时不处理' % code['名称'])
         return
     ### 定义用到的变量
-    STEP = 5.4
+    STEP, SHAKE1, SHAKE2 = 5.4, 2.7, 5.4
     # 初始化浏览器
     browser = browser_init()
     while True:
@@ -194,12 +194,23 @@ def fetch_check_write(code, cnts):
         print(contents)
         # 2.逐步向右移动到最右边元素trade_date[-1],依次对比每个日期并取数据
         repeat_cnts = 0
+        move_flag, move_step = True, 0
         for date in trade_date[1:-1]:
+            flags0 = 0
+            flags1 = 0
             while True:
                 content = wait_data(browser)
+                # 处于错误的位置,需要左右摆动
+                if 0 == compare_date(content[0], trade_date[-1]):
+                    action = ActionChains(browser)
+                    move_step = SHAKE2 if (move_flag == True) else (0 - SHAKE1)
+                    action.move_by_offset(move_step, 0).perform()
+                    move_flag = not move_flag
+                    print('鼠标依旧处于错误|最新元素位置将进行左右摆动:move_flag=%s,move_step=%f,date=%s,content[0]=%s,trade_date[-1]=%s,code=%s' % (move_flag, move_step, date, content[0], trade_date[-1], code))
+                    continue
+                # 判断是否移动到对应元素
                 ret = compare_date(content[0], date)
                 # print(content[0], date, ret)
-                # 判断是否移动到对应元素
                 if 0 == ret:
                     print('已找到到日期%s的元素,将向右移动寻找元素' % date)
                     contents.append(content)
@@ -210,10 +221,20 @@ def fetch_check_write(code, cnts):
                     print('鼠标依旧处于滞后元素位置,将向右移动寻找元素')
                     action = ActionChains(browser)
                     action.move_by_offset(STEP, 0).perform()
+                    flags0 += 1
+                    flags1 = 0
                 elif 1 == ret:
                     print('鼠标依旧处于超前元素位置,将向左移动寻找元素')
                     action = ActionChains(browser)
                     action.move_by_offset((0 - STEP), 0).perform()
+                    flags0 = 0
+                    flags1 += 1
+                if (flags0 == 20) or (flags1 == 20):
+                    while True:
+                        print("#########################连续出错10次以上")
+                        print(content[0], date)
+                        print(flags0, flags1)
+                        time.sleep(1)
         # screenshot_debug(browser, code['代码'] + '-4')
         print(contents)
         # 3.非N开头新股移动到最右边元素/trade_date[-1]
@@ -246,9 +267,10 @@ if __name__ == "__main__":
     ### 获取今日所有股票列表
     print('正在获取今日所有开盘股票')
     codes = get_list()
-    print(codes)
+    print(len(codes), codes[0], codes[-1])
 
-    executor = ThreadPoolExecutor(max_workers=8)
+    max_workers = cpu_count()
+    executor = ThreadPoolExecutor(max_workers=max_workers)
     cnts = 0
     all_task = []
     for code in codes:
